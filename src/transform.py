@@ -1,46 +1,58 @@
 import pandas as pd
-from datetime import timedelta
-def transform_simple(dim_df,updates_df):
-    updates_df = updates_df.apply(lambda col:col.str.strip() if col.dtype  == 'object' else col)
+
+def transformation_data(orders_df, order_items_df):
+
+    cancelled_orders_df = orders_df[orders_df['status'] == 'Cancelled']
+    active_orders_df = orders_df[orders_df['status'] != 'Cancelled']
+
+    order_summary = {
+        'cancelled_df': cancelled_orders_df,
+        'active_df': active_orders_df,
+        'cancelled_count': len(cancelled_orders_df),
+        'active_count': len(active_orders_df)
+    }
+
+    merged_df = pd.merge(active_orders_df, order_items_df, how='inner', on='order_id')
+
+
+    merged_df['line_revenue'] = merged_df['quantity'] * merged_df['unit_price']
+    merged_df['discounted_revenue'] = merged_df['line_revenue'] * (1 - merged_df['discount_pct'] / 100)
+    merged_df['discounted_revenue'] = merged_df['discounted_revenue'].round(2)
+
  
-    current_df =dim_df[dim_df['is_current'] == 1]
- 
-    expire_rows=[]
-    insert_rows =[]
- 
-    for _,new in updates_df.iterrows():
- 
-        cust_id = new['customer_id']
-        effective_date=pd.to_datetime(new['effective_date'])
-        old=current_df[current_df['customer_id'] == cust_id]
- 
- 
-        if old.empty:
-            new_row = new.copy()
-            new_row['is_current'] = 1
-            new_row['start_date']= effective_date
-            new_row['end_date'] = None
-            insert_rows.append(new_row)
-        else:
-            old_row=old.iloc[0]
- 
-        if(
-            old_row['city'] != new['city']or
-            old_row['loyalty_tier'] != new['loyalty_tier'] or
-            old_row['annual_income_band'] !=new['annual_income_band']
-        ):
-            expire_rows.append({
-                'customer_id':cust_id,
-                "end_date":effective_date-timedelta(days=1)
-            } )
-            new_row = new.copy()
-            new_row['is_current'] = 1
-            new_row['start_date']= effective_date
-            new_row['end_date'] = None
-            insert_rows.append(new_row)
- 
- 
-    expire_df = pd.DataFrame(expire_rows)
-    insert_df = pd.DataFrame(insert_rows)
- 
-    return expire_df,insert_df
+    customer_summary = merged_df.groupby('customer_id').agg(
+        total_orders=('order_id', 'nunique'),
+        total_items_purchased=('quantity', 'sum'),
+        total_revenue=('discounted_revenue', 'sum')
+    ).reset_index()
+    customer_summary = customer_summary.sort_values(by='total_revenue', ascending=False)
+    customer_summary['rank'] = range(1, len(customer_summary) + 1)
+
+
+    product_summary = merged_df.groupby('product_id').agg(
+        total_units_sold=('quantity', 'sum'),
+        total_revenue=('discounted_revenue', 'sum')
+    ).reset_index()
+    product_summary = product_summary.sort_values(by='total_units_sold', ascending=False)
+
+    daily_summary = merged_df.groupby('order_date').agg(
+        total_orders=('order_id', 'nunique'),
+        total_revenue=('discounted_revenue', 'sum')
+    ).reset_index()
+
+    return customer_summary, product_summary, daily_summary, order_summary
+
+
+if __name__ == "__main__":
+    from extract import load_data 
+    orders_df, order_items_df = load_data()
+    cust, prod, daily, canc = transformation_data(orders_df, order_items_df)
+
+    print("Customer Summary:")
+    print(cust.head())
+    print("\nProduct Summary:")
+    print(prod.head())
+    print("\nDaily Summary:")
+    print(daily.head())
+    print("\nCancelled Orders Count:")
+    print(canc['cancelled_count'])

@@ -1,61 +1,36 @@
-# load.py
-import pandas as pd
-from sqlalchemy import create_engine, text
-from urllib.parse import quote_plus
+from sqlalchemy import create_engine
 
-# DB Config
-DB_USER = "root"
-DB_PASS = "Rajesh@1234"
-DB_HOST = "localhost"
-DB_NAME = "orders_db"
+def load_to_mysql(df, table_name):
 
-def get_engine():
-    password = quote_plus(DB_PASS)   # ✅ Fix for @ symbol
-    conn_str = f"mysql+pymysql://{DB_USER}:{password}@{DB_HOST}/{DB_NAME}"
-    return create_engine(conn_str)
+    engine = create_engine(
+        "mysql+mysqlconnector://root:Rajesh%401234@localhost/orders_db"
+    )
 
-def load(expire_df, insert_df, change_df):
-    engine = get_engine()
+    df.to_sql(
+        name=table_name,
+        con=engine,
+        if_exists='replace',
+        index=False
+    )
 
-    with engine.begin() as conn:  # ✅ transaction safe
+    print(f"Loaded {len(df)} rows into {table_name}")
 
-        # 🔴 1. Expire old records (UPDATE actual table)
-        if not expire_df.empty:
-            for _, r in expire_df.iterrows():
-                conn.execute(text("""
-                    UPDATE dim_customer
-                    SET is_current = 0,
-                        end_date = :end_date
-                    WHERE customer_id = :customer_id
-                    AND is_current = 1
-                """), {
-                    "end_date": r["end_date"],
-                    "customer_id": r["customer_id"]
-                })
 
-            print(f"[LOAD] Expired {len(expire_df)} rows")
 
-        # 🟢 2. Insert new records
-        if not insert_df.empty:
-            if 'effective_date' in insert_df.columns:
-                insert_df = insert_df.drop(columns=['effective_date'])
+if __name__ == "__main__":
+    from extract import load_data
+    from transform import transformation_data
 
-            insert_df.to_sql(
-                'dim_customer',
-                conn,
-                if_exists='append',
-                index=False
-            )
 
-            print(f"[LOAD] Inserted {len(insert_df)} rows")
+    orders_df, order_items_df = load_data()
 
-        # 🟡 3. Change log
-        if not change_df.empty:
-            change_df.to_sql(
-                'dim_customer_change_log',
-                conn,
-                if_exists='replace',
-                index=False
-            )
+ 
+    customer_summary, product_summary, daily_summary, order_summary = transformation_data(orders_df, order_items_df)
 
-            print(f"[LOAD] Logged {len(change_df)} changes")
+ 
+    load_to_mysql(customer_summary, "customer_revenue")
+    load_to_mysql(product_summary, "product_revenue")
+    load_to_mysql(daily_summary, "daily_revenue")
+    load_to_mysql(order_summary['cancelled_df'], "cancellation_report")
+
+    print("ETL completed successfully ")

@@ -1,8 +1,8 @@
 import pandas as pd
 import mysql.connector
 
-def customer_dim():
-    # Create connection
+def load_data():
+
     conn = mysql.connector.connect(
         host="localhost",
         user="root",
@@ -10,11 +10,18 @@ def customer_dim():
         database="orders_db"
     )
 
-    dim_df = pd.read_sql("SELECT * FROM dim_customer", conn)
-    updates_df = pd.read_csv(r"C:\Users\hp\Desktop\ppp\scdtypo1\src\customer_updates.csv")
-    conn.close()
-    return dim_df, updates_df
-dim_df, updates_df = customer_dim()
-print(dim_df.head())
-print(updates_df.head())
 
+    df_orders = pd.read_sql("SELECT * FROM orders", conn)
+    df_order_items = pd.read_sql("SELECT * FROM order_items", conn)
+
+
+    conn.close()
+
+    return df_orders, df_order_items
+
+if __name__ == "__main__":
+    df_orders, df_order_items = load_data()
+    print("Orders table sample:")
+    print(df_orders.head())
+    print("\nOrder items table sample:")
+    print(df_order_items.head())
